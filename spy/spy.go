@@ -28,7 +28,7 @@ func NewWatcher(hasher func(string) (string, error)) *Watcher {
 		c: http.Client{
 			Timeout: time.Second * 5,
 		},
-		ticker: time.NewTicker(time.Millisecond * 10),
+		ticker: time.NewTicker(time.Millisecond * 10000),
 		hasher: hasher,
 		selector: func(i int, s []string) int {
 			i++
@@ -102,22 +102,28 @@ func (w *Watcher) fetch(ctx context.Context, url string) (*Result, error) {
 	if err != nil {
 		return nil, fmt.Errorf("could not hash %w", err)
 	}
+	var diff string
+	if result := w.hashes[url]; result != nil {
+		diff = diff2(string(b), result.Diff)
+	} else {
+		diff = string(b)
+	}
 	return &Result{
 		Hash: hash,
-		Diff: strings.Join(diff(strings.Split(string(b), "\n"), strings.Split(hash, "\n")), "\n"),
+		Diff: diff,
 	}, nil
 }
 
-func diff(a, b []string) []string {
+func diff2(a, b string) string {
 	mb := make(map[string]struct{}, len(b))
-	for _, x := range b {
+	for _, x := range strings.Split(a, "\n") {
 		mb[x] = struct{}{}
 	}
 	var diff []string
-	for _, x := range a {
+	for _, x := range strings.Split(b, "\n") {
 		if _, found := mb[x]; !found {
 			diff = append(diff, x)
 		}
 	}
-	return diff
+	return strings.Join(diff, "\n")
 }
