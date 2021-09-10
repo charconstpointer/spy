@@ -30,7 +30,7 @@ func main() {
 			case <-ctx.Done():
 				return
 			case ev := <-w.E:
-				fmt.Println(ev)
+				fmt.Printf("%s: %s\n", ev.Hash, ev.Diff)
 			}
 		}
 	}()
