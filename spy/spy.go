@@ -30,8 +30,9 @@ type WatcherOpts struct {
 	Hasher      func(string) (string, error)
 }
 type Result struct {
-	Hash string
-	Diff string
+	Hash      string
+	Diff      string
+	Timestamp int64
 }
 
 func NewWatcher(opts WatcherOpts) *Watcher {
@@ -76,7 +77,7 @@ func (w *Watcher) Write(ctx context.Context, wr ...io.Writer) error {
 				bw := bufio.NewWriter(s)
 				fmt.Println("writing", s)
 				fmt.Fprintln(bw, strings.Repeat("-", 80))
-				fmt.Fprintf(bw, "hash\n%s\ndiff\n%s\n", ev.Hash, ev.Diff)
+				fmt.Fprintf(bw, "hash\t%s\ndiff\t%s\ntimestamp\t%d", ev.Hash, ev.Diff, ev.Timestamp)
 				fmt.Fprintln(bw, strings.Repeat("-", 80))
 				bw.Flush()
 			}
@@ -92,7 +93,7 @@ func (w *Watcher) watch(ctx context.Context) error {
 		case <-w.ticker.C:
 			pointer = w.selector(pointer, w.targets)
 			target := w.targets[pointer]
-			fmt.Printf("[F.%d]:%s\n", pointer, target)
+			fmt.Printf("%d:%s\n", pointer, target)
 			result, err := w.fetch(ctx, target)
 			if err != nil {
 				return err
@@ -129,13 +130,22 @@ func (w *Watcher) fetch(ctx context.Context, url string) (*Result, error) {
 	}
 	var diff string
 	if result := w.hashes[url]; result != nil {
-		d := w.dmp.DiffMain(string(b), result.Diff, true)
-		diff = w.dmp.DiffToDelta(d)
+		ch := w.dmp.DiffMain(string(b), result.Diff, true)
+		s := strings.Builder{}
+		s.WriteString(strings.Repeat("-", 80))
+		for _, d := range ch {
+			if d.Type == diffmatchpatch.DiffInsert {
+				s.WriteString(fmt.Sprintf("+%s\n", d.Text))
+			}
+		}
+		s.WriteString(strings.Repeat("-", 80))
+		diff = s.String()
 	} else {
 		diff = string(b)
 	}
 	return &Result{
-		Hash: hash,
-		Diff: diff,
+		Hash:      hash,
+		Diff:      diff,
+		Timestamp: time.Now().UTC().Unix(),
 	}, nil
 }
