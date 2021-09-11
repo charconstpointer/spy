@@ -5,7 +5,9 @@ import (
 	"crypto/md5"
 	"flag"
 	"fmt"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/charconstpointer/spy/spy"
 )
@@ -18,24 +20,16 @@ func main() {
 		panic("No targets specified")
 	}
 	targets := strings.Split(*targets, ",")
-	w := spy.NewWatcher(
-		func(s string) (string, error) {
+	opts := spy.WatcherOpts{
+		Hasher: func(s string) (string, error) {
 			return fmt.Sprintf("%x", md5.Sum([]byte(s))), nil
 		},
-	)
+		HTTPTimeout: time.Duration(5) * time.Second,
+		Interval:    time.Duration(1) * time.Second,
+	}
+	w := spy.NewWatcher(opts)
 	ctx := context.Background()
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case ev := <-w.E:
-				fmt.Println(strings.Repeat("-", 80))
-				fmt.Printf("%s: %s\n", ev.Hash, ev.Diff)
-				fmt.Println(strings.Repeat("-", 80))
-			}
-		}
-	}()
+	go w.Write(ctx, os.Stdout)
 	if err := w.Watch(ctx, targets...); err != nil {
 		panic(err)
 	}

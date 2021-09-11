@@ -3,11 +3,13 @@ package spy
 import (
 	"context"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
 	"time"
 
+	"github.com/sergi/go-diff/diffmatchpatch"
 	"golang.org/x/sync/errgroup"
 )
 
@@ -19,22 +21,33 @@ type Watcher struct {
 	ticker   *time.Ticker
 	hasher   func(string) (string, error)
 	selector func(int, []string) int
+	dmp      *diffmatchpatch.DiffMatchPatch
+}
+type WatcherOpts struct {
+	Interval    time.Duration
+	HTTPTimeout time.Duration
+	Hasher      func(string) (string, error)
+}
+type Result struct {
+	Hash string
+	Diff string
 }
 
-func NewWatcher(hasher func(string) (string, error)) *Watcher {
+func NewWatcher(opts WatcherOpts) *Watcher {
 	return &Watcher{
 		hashes: make(map[string]*Result),
 		E:      make(chan *Result),
 		c: http.Client{
-			Timeout: time.Second * 5,
+			Timeout: opts.HTTPTimeout,
 		},
-		ticker: time.NewTicker(time.Millisecond * 10000),
-		hasher: hasher,
+		ticker: time.NewTicker(opts.Interval),
+		hasher: opts.Hasher,
 		selector: func(i int, s []string) int {
 			i++
 			i = i % len(s)
 			return i
 		},
+		dmp: diffmatchpatch.New(),
 	}
 }
 
@@ -52,7 +65,20 @@ func (w *Watcher) Watch(ctx context.Context, targets ...string) error {
 
 	return g.Wait()
 }
-
+func (w *Watcher) Write(ctx context.Context, wr ...io.Writer) error {
+	for {
+		select {
+		case <-ctx.Done():
+			return nil
+		case ev := <-w.E:
+			for _, s := range wr {
+				fmt.Fprintln(s, strings.Repeat("-", 80))
+				fmt.Fprintf(s, "hash\n%s\ndiff\n%s\n", ev.Hash, ev.Diff)
+				fmt.Fprintln(s, strings.Repeat("-", 80))
+			}
+		}
+	}
+}
 func (w *Watcher) watch(ctx context.Context) error {
 	var pointer int
 	for {
@@ -79,11 +105,6 @@ func (w *Watcher) watch(ctx context.Context) error {
 	}
 }
 
-type Result struct {
-	Hash string
-	Diff string
-}
-
 func (w *Watcher) fetch(ctx context.Context, url string) (*Result, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
@@ -104,7 +125,8 @@ func (w *Watcher) fetch(ctx context.Context, url string) (*Result, error) {
 	}
 	var diff string
 	if result := w.hashes[url]; result != nil {
-		diff = diff2(string(b), result.Diff)
+		d := w.dmp.DiffMain(string(b), result.Diff, true)
+		diff = w.dmp.DiffPrettyText(d)
 	} else {
 		diff = string(b)
 	}
@@ -112,18 +134,4 @@ func (w *Watcher) fetch(ctx context.Context, url string) (*Result, error) {
 		Hash: hash,
 		Diff: diff,
 	}, nil
-}
-
-func diff2(a, b string) string {
-	mb := make(map[string]struct{}, len(b))
-	for _, x := range strings.Split(a, "\n") {
-		mb[x] = struct{}{}
-	}
-	var diff []string
-	for _, x := range strings.Split(b, "\n") {
-		if _, found := mb[x]; !found {
-			diff = append(diff, x)
-		}
-	}
-	return strings.Join(diff, "\n")
 }
