@@ -12,7 +12,9 @@ import (
 	"github.com/charconstpointer/spy/spy"
 )
 
-var targets = flag.String("targets", "", "Comma separated list of targets")
+var (
+	targets = flag.String("targets", "", "Comma separated list of targets")
+)
 
 func main() {
 	flag.Parse()
@@ -20,6 +22,7 @@ func main() {
 		panic("No targets specified")
 	}
 	targets := strings.Split(*targets, ",")
+
 	opts := spy.WatcherOpts{
 		Hasher: func(s string) (string, error) {
 			return fmt.Sprintf("%x", md5.Sum([]byte(s))), nil
@@ -29,7 +32,11 @@ func main() {
 	}
 	w := spy.NewWatcher(opts)
 	ctx := context.Background()
-	go w.Write(ctx, os.Stdout)
+	file, err := os.OpenFile("output.txt", os.O_WRONLY|os.O_CREATE, 0666)
+	if err != nil {
+		panic(err)
+	}
+	go w.Write(ctx, file)
 	if err := w.Watch(ctx, targets...); err != nil {
 		panic(err)
 	}

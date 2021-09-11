@@ -1,6 +1,7 @@
 package spy
 
 import (
+	"bufio"
 	"context"
 	"fmt"
 	"io"
@@ -72,9 +73,12 @@ func (w *Watcher) Write(ctx context.Context, wr ...io.Writer) error {
 			return nil
 		case ev := <-w.E:
 			for _, s := range wr {
-				fmt.Fprintln(s, strings.Repeat("-", 80))
-				fmt.Fprintf(s, "hash\n%s\ndiff\n%s\n", ev.Hash, ev.Diff)
-				fmt.Fprintln(s, strings.Repeat("-", 80))
+				bw := bufio.NewWriter(s)
+				fmt.Println("writing", s)
+				fmt.Fprintln(bw, strings.Repeat("-", 80))
+				fmt.Fprintf(bw, "hash\n%s\ndiff\n%s\n", ev.Hash, ev.Diff)
+				fmt.Fprintln(bw, strings.Repeat("-", 80))
+				bw.Flush()
 			}
 		}
 	}
@@ -126,7 +130,7 @@ func (w *Watcher) fetch(ctx context.Context, url string) (*Result, error) {
 	var diff string
 	if result := w.hashes[url]; result != nil {
 		d := w.dmp.DiffMain(string(b), result.Diff, true)
-		diff = w.dmp.DiffPrettyText(d)
+		diff = w.dmp.DiffToDelta(d)
 	} else {
 		diff = string(b)
 	}
